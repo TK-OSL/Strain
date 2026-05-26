@@ -1,0 +1,1287 @@
+<!--
+  ====================================================================
+  Project: Interactive Physics: Strain (แบบจำลองฟิสิกส์ เรื่องความเครียด)
+  Description: 
+    เว็บแอปพลิเคชัน 3 มิติแบบโต้ตอบ (Interactive 3D Web App) สำหรับเรียนรู้เรื่อง 
+    ความเครียด (Strain) ทั้ง 3 ประเภท ได้แก่ ตามยาว (Normal), เฉือน (Shear) 
+    และ เชิงปริมาตร (Volumetric) โดยแสดงผลการเปลี่ยนรูปร่างแบบเรียลไทม์ผ่าน Three.js 
+    พร้อมทั้งแสดงวิธีทำและคำนวณอย่างละเอียด
+    
+  Features:
+    - 3D Simulation ด้วย Three.js (ไม่ใช้รูปภาพตายตัว)
+    - รองรับ 2 ภาษา (English / Thai)
+    - สร้างสูตรคณิตศาสตร์ด้วย HTML บริสุทธิ์ (ไม่พึ่งพา MathJax ทำให้ฝังบน Google Sites ได้ 100%)
+    - ตัวอย่างการคำนวณแบบเปลี่ยนโจทย์ได้ (Interactive Example)
+
+  Author: gemini (AI)
+  Credit: OpenSimLab.org
+  ====================================================================
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Physics: Strain</title>
+    
+    <!-- Tailwind CSS สำหรับการจัดการ Layout และ Design -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Google Fonts (Kanit) เพื่อให้ตัวอักษรอ่านง่าย -->
+    <link href="https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- Three.js และ OrbitControls สำหรับการเรนเดอร์กราฟิก 3 มิติ -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+
+    <style>
+        /* ตั้งค่าฟอนต์และสีพื้นหลังหลัก */
+        body {
+            font-family: 'Kanit', sans-serif;
+            background-color: #f8fafc;
+            color: #1e293b;
+        }
+        
+        /* สไตล์สำหรับกล่องแสดง 3D */
+        #canvas-container {
+            width: 100%;
+            height: 500px;
+            border-radius: 0.5rem;
+            overflow: hidden;
+            background: linear-gradient(to bottom, #f1f5f9, #e2e8f0);
+            position: relative;
+            cursor: grab;
+            border: 1px solid #cbd5e1;
+        }
+        #canvas-container:active {
+            cursor: grabbing;
+        }
+        
+        /* สไตล์กำหนดเองสำหรับ Slider ให้ดูทันสมัยขึ้น */
+        .slider-custom {
+            -webkit-appearance: none;
+            width: 100%;
+            height: 8px;
+            border-radius: 5px;
+            background: #cbd5e1;
+            outline: none;
+        }
+        .slider-custom::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: #3b82f6;
+            cursor: pointer;
+            transition: background .15s ease-in-out;
+        }
+        .slider-custom::-webkit-slider-thumb:hover {
+            background: #2563eb;
+        }
+        
+        /* สไตล์สำหรับสร้างเศษส่วนทางคณิตศาสตร์ด้วย CSS เพียวๆ (หลีกเลี่ยงบั๊ก MathJax ใน Google Sites) */
+        .frac {
+            display: inline-flex;
+            flex-direction: column;
+            vertical-align: middle;
+            text-align: center;
+            margin: 0 0.2rem;
+            line-height: 1.2;
+        }
+        .frac > span:first-child {
+            border-bottom: 2px solid currentColor;
+            padding: 0 0.2rem;
+        }
+        .frac > span:last-child {
+            padding: 0 0.2rem;
+        }
+
+        /* ป้ายกำกับ (Labels) สำหรับเส้นบอกระยะ L0, dL ที่ลอยอยู่เหนือ 3D Canvas */
+        .dim-label {
+            position: absolute;
+            background: rgba(255, 255, 255, 0.95);
+            border: 1px solid #94a3b8;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 0.875rem;
+            font-weight: 600;
+            pointer-events: none;
+            transform: translate(-50%, -50%);
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            white-space: nowrap;
+        }
+        .text-dim-base { color: #334155; }
+        .text-dim-change { color: #10b981; border-color: #10b981; }
+        .text-dim-change-neg { color: #ef4444; border-color: #ef4444; }
+        
+        /* แท็บเมนู (Tabs) */
+        .tab-btn {
+            border-bottom-width: 2px;
+            border-color: transparent;
+            transition: all 0.2s;
+        }
+        .tab-btn.active {
+            border-color: #4f46e5;
+            color: #4f46e5;
+            background-color: #e0e7ff;
+            font-weight: 700;
+        }
+        
+        /* ปุ่มสลับภาษา EN/TH */
+        .lang-toggle-container {
+            background-color: #f1f5f9;
+            border-radius: 0.75rem;
+            padding: 0.25rem;
+            display: inline-flex;
+            border: 1px solid #e2e8f0;
+        }
+        .lang-btn {
+            padding: 0.375rem 1rem;
+            border-radius: 0.5rem;
+            font-weight: 600;
+            font-size: 1rem;
+            transition: all 0.2s ease-in-out;
+            cursor: pointer;
+            color: #64748b;
+        }
+        .lang-btn.active {
+            background-color: white;
+            color: #f97316; /* สีส้มตามตัวอย่างที่ผู้ใช้แนบมา */
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+    </style>
+</head>
+<body class="antialiased min-h-screen flex flex-col">
+
+    <!-- Header -->
+    <header class="bg-indigo-700 text-white shadow-md py-6">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex justify-between items-center">
+            <div>
+                <h1 class="text-3xl md:text-4xl font-bold" data-i18n="header_title">Physics: Strain</h1>
+                <p class="mt-2 text-indigo-200 text-sm md:text-lg" data-i18n="header_subtitle">Learn about material deformation with 3D interactive models.</p>
+            </div>
+            
+            <!-- Language Toggle (ปุ่มเปลี่ยนภาษา) -->
+            <div class="lang-toggle-container">
+                <button id="btn-en" class="lang-btn active" onclick="setLang('en')">EN</button>
+                <button id="btn-th" class="lang-btn" onclick="setLang('th')">TH</button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content (เนื้อหาหลัก) -->
+    <main class="flex-grow max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full">
+        
+        <!-- Section 1: Theory (ทฤษฎี) -->
+        <section class="bg-white rounded-xl shadow-sm p-6 md:p-8 border border-slate-200 mb-8">
+            <h2 class="text-2xl font-bold text-slate-800 mb-4 border-l-4 border-indigo-500 pl-3" data-i18n="theory_title">What is Strain?</h2>
+            <div class="prose max-w-none text-slate-600 leading-relaxed text-base md:text-lg">
+                <p class="mb-4" data-i18n="theory_desc">
+                    When an external force is applied to an object (such as tension, compression, or shear), the object undergoes a change in shape or size. In physics, <strong>Strain</strong> is the measure of this <strong>"deformation ratio"</strong> compared to its original dimensions.
+                </p>
+                <div class="bg-slate-50 p-4 rounded-lg border border-slate-100 mb-6 text-base text-slate-700">
+                    <p data-i18n="theory_note">💡 <strong>Note:</strong> Since strain is a ratio of two quantities with the same units (e.g., meters divided by meters), it is a <strong>dimensionless quantity</strong>. However, in engineering, it is often expressed as a percentage (%) or in microstrain (&mu;&epsilon;).</p>
+                </div>
+
+                <h3 class="text-xl font-bold text-slate-800 mt-8 mb-4" data-i18n="types_title">Types of Strain</h3>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <!-- Type 1: Normal Strain -->
+                    <div class="border border-slate-200 rounded-lg p-5 bg-white shadow-sm hover:shadow-md transition-shadow">
+                        <div class="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center mb-3">
+                            <span class="text-xl">📏</span>
+                        </div>
+                        <h4 class="font-bold text-slate-800 mb-2" data-i18n="type1_title">1. Normal Strain</h4>
+                        <div data-i18n="type1_content"></div>
+                    </div>
+                    <!-- Type 2: Shear Strain -->
+                    <div class="border border-slate-200 rounded-lg p-5 bg-white shadow-sm hover:shadow-md transition-shadow">
+                        <div class="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center mb-3">
+                            <span class="text-xl">📐</span>
+                        </div>
+                        <h4 class="font-bold text-slate-800 mb-2" data-i18n="type2_title">2. Shear Strain</h4>
+                        <div data-i18n="type2_content"></div>
+                    </div>
+                    <!-- Type 3: Volumetric Strain -->
+                    <div class="border border-slate-200 rounded-lg p-5 bg-white shadow-sm hover:shadow-md transition-shadow">
+                        <div class="w-10 h-10 bg-purple-100 rounded-full flex items-center justify-center mb-3">
+                            <span class="text-xl">📦</span>
+                        </div>
+                        <h4 class="font-bold text-slate-800 mb-2" data-i18n="type3_title">3. Volumetric Strain</h4>
+                        <div data-i18n="type3_content"></div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Section 2: Interactive 3D & Calculation (ส่วนจำลอง 3 มิติและการคำนวณ) -->
+        <h2 class="text-2xl font-bold text-slate-800 mb-4 border-l-4 border-blue-500 pl-3" data-i18n="sim_title">3D Simulation & Calculation</h2>
+        
+        <!-- Mode Selection Tabs (แท็บเลือกประเภทความเครียด) -->
+        <div class="flex space-x-1 mb-6 border-b border-slate-200 overflow-x-auto">
+            <button onclick="setMode('normal')" id="tab-normal" class="tab-btn active px-4 py-3 text-slate-600 hover:bg-slate-50 font-medium rounded-t-lg whitespace-nowrap" data-i18n="tab_normal">1. Normal Strain</button>
+            <button onclick="setMode('shear')" id="tab-shear" class="tab-btn px-4 py-3 text-slate-600 hover:bg-slate-50 font-medium rounded-t-lg whitespace-nowrap" data-i18n="tab_shear">2. Shear Strain</button>
+            <button onclick="setMode('volumetric')" id="tab-volumetric" class="tab-btn px-4 py-3 text-slate-600 hover:bg-slate-50 font-medium rounded-t-lg whitespace-nowrap" data-i18n="tab_volumetric">3. Volumetric Strain</button>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-10">
+            
+            <!-- Left: 3D Canvas (พื้นที่แสดง 3 มิติ) -->
+            <div class="flex flex-col gap-4">
+                <div id="canvas-container">
+                    <!-- คู่มือควบคุมกล้อง -->
+                    <div class="absolute top-3 left-3 bg-white/90 backdrop-blur-sm px-3 py-1.5 rounded text-xs font-medium text-slate-600 shadow-sm z-10" data-i18n="cam_control">
+                        Rotate: Left Click | Zoom: Scroll
+                    </div>
+                    <!-- สัญลักษณ์แทนแรง (Force Legend) -->
+                    <div class="absolute bottom-3 left-3 bg-white/90 backdrop-blur-sm px-3 py-1.5 rounded text-xs font-medium text-red-600 shadow-sm z-10 flex items-center gap-2" id="legend-force">
+                        <span class="inline-block w-4 h-1 bg-red-500"></span> <span data-i18n="force_vector">Force Vector (F)</span>
+                    </div>
+                    
+                    <!-- SVG Overlay สำหรับวาดเส้นบอกระยะทับลงไปบนภาพ 3 มิติ -->
+                    <svg id="svg-overlay" class="absolute top-0 left-0 w-full h-full pointer-events-none z-10">
+                        <!-- เส้นวัดระยะเดิม (L0, h) -->
+                        <path id="path-base" stroke="#64748b" stroke-width="1.5" stroke-dasharray="4,4" fill="none" />
+                        <line id="tick-base-top" stroke="#64748b" stroke-width="1.5" />
+                        <line id="tick-base-bottom" stroke="#64748b" stroke-width="1.5" />
+                        
+                        <!-- เส้นวัดระยะที่เปลี่ยนไป (dL, dx) -->
+                        <path id="path-change" stroke="#10b981" stroke-width="2" fill="none" />
+                        <line id="tick-change-top" stroke="#10b981" stroke-width="2" />
+                        <line id="tick-change-bottom" stroke="#10b981" stroke-width="2" />
+
+                        <!-- เส้นประนำสายตาสำหรับ Shear Strain -->
+                        <line id="guide-change-start" stroke="#10b981" stroke-width="1.5" stroke-dasharray="3,3" fill="none" opacity="0.6"/>
+                        <line id="guide-change-end" stroke="#10b981" stroke-width="1.5" stroke-dasharray="3,3" fill="none" opacity="0.6"/>
+                    </svg>
+
+                    <!-- HTML Labels สำหรับตัวหนังสือ L0, dL -->
+                    <div id="label-base" class="dim-label text-dim-base">L<sub>0</sub></div>
+                    <div id="label-change" class="dim-label text-dim-change">&Delta;L</div>
+                </div>
+            </div>
+
+            <!-- Right: Controls & Results (แผงควบคุมและแสดงผลคำนวณ) -->
+            <div class="flex flex-col gap-6">
+                
+                <!-- แผงควบคุม (Sliders) -->
+                <div class="bg-white rounded-xl shadow-sm p-6 border border-slate-200 min-h-[220px]">
+                    <h3 class="text-lg font-bold text-slate-800 mb-4" id="panel-title" data-i18n="panel_title_normal">Simulate Deformation (Normal)</h3>
+                    
+                    <!-- เครื่องมือปรับโหมด Normal -->
+                    <div id="panel-normal" class="block">
+                        <div class="mb-6">
+                            <div class="flex justify-between items-end mb-2">
+                                <label class="font-medium text-slate-700" data-i18n="lbl_l0">Original Length (L<sub>0</sub>)</label>
+                                <span class="text-slate-700 font-bold bg-slate-100 px-2 py-1 rounded text-sm" id="val-l0">2.0 m</span>
+                            </div>
+                            <input type="range" id="slider-l0" min="1.0" max="5.0" step="0.1" value="2.0" class="slider-custom">
+                        </div>
+                        <div class="mb-2">
+                            <div class="flex justify-between items-end mb-2">
+                                <label class="font-medium text-slate-700" data-i18n="lbl_dl">Change in Length (&Delta;L)</label>
+                                <div class="flex items-center gap-2">
+                                    <span class="text-white font-bold bg-blue-500 px-2 py-1 rounded text-sm" id="val-dl">0.5 m</span>
+                                    <span class="text-blue-700 font-bold bg-blue-100 px-2 py-1 rounded text-sm" id="val-dl-percent">(25.0%)</span>
+                                </div>
+                            </div>
+                            <input type="range" id="slider-dl" min="-1.0" max="2.0" step="0.05" value="0.5" class="slider-custom">
+                            <div class="flex justify-between text-xs text-slate-400 mt-1">
+                                <span data-i18n="shrink">Shrink (-)</span>
+                                <span data-i18n="stretch">Stretch (+)</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- เครื่องมือปรับโหมด Shear -->
+                    <div id="panel-shear" class="hidden">
+                        <div class="mb-6">
+                            <div class="flex justify-between items-end mb-2">
+                                <label class="font-medium text-slate-700" data-i18n="lbl_h">Height (h)</label>
+                                <span class="text-slate-700 font-bold bg-slate-100 px-2 py-1 rounded text-sm" id="val-h">2.0 m</span>
+                            </div>
+                            <input type="range" id="slider-h" min="1.0" max="5.0" step="0.1" value="2.0" class="slider-custom">
+                        </div>
+                        <div class="mb-2">
+                            <div class="flex justify-between items-end mb-2">
+                                <label class="font-medium text-slate-700" data-i18n="lbl_dx">Displacement (&Delta;x)</label>
+                                <div class="flex items-center gap-2">
+                                    <span class="text-white font-bold bg-green-500 px-2 py-1 rounded text-sm" id="val-dx">0.5 m</span>
+                                    <span class="text-green-700 font-bold bg-green-100 px-2 py-1 rounded text-sm" id="val-dx-percent">(25.0%)</span>
+                                </div>
+                            </div>
+                            <input type="range" id="slider-dx" min="-2.0" max="2.0" step="0.05" value="0.5" class="slider-custom">
+                            <div class="flex justify-between text-xs text-slate-400 mt-1">
+                                <span data-i18n="left">Left (-)</span>
+                                <span data-i18n="right">Right (+)</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- เครื่องมือปรับโหมด Volumetric -->
+                    <div id="panel-volumetric" class="hidden">
+                        <div class="mb-6">
+                            <div class="flex justify-between items-end mb-2">
+                                <label class="font-medium text-slate-700" data-i18n="lbl_v0">Original Volume (V<sub>0</sub>)</label>
+                                <span class="text-slate-700 font-bold bg-slate-100 px-2 py-1 rounded text-sm" id="val-v0">5.0 m³</span>
+                            </div>
+                            <input type="range" id="slider-v0" min="1.0" max="10.0" step="0.5" value="5.0" class="slider-custom">
+                        </div>
+                        <div class="mb-2">
+                            <div class="flex justify-between items-end mb-2">
+                                <label class="font-medium text-slate-700" data-i18n="lbl_dv">Change in Volume (&Delta;V)</label>
+                                <div class="flex items-center gap-2">
+                                    <span class="text-white font-bold bg-purple-500 px-2 py-1 rounded text-sm" id="val-dv">-1.0 m³</span>
+                                    <span class="text-purple-700 font-bold bg-purple-100 px-2 py-1 rounded text-sm" id="val-dv-percent">(-20.0%)</span>
+                                </div>
+                            </div>
+                            <input type="range" id="slider-dv" min="-4.5" max="5.0" step="0.1" value="-1.0" class="slider-custom">
+                            <div class="flex justify-between text-xs text-slate-400 mt-1">
+                                <span data-i18n="compress">Compress (-)</span>
+                                <span data-i18n="expand">Expand (+)</span>
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+
+                <!-- Step-by-Step Calculation (วิธีทำอย่างละเอียด) -->
+                <div class="bg-white rounded-xl shadow-sm p-6 border border-slate-200 flex-grow">
+                    <h3 class="text-lg font-bold text-slate-800 mb-4 border-b pb-2" data-i18n="calc_detail_title">Detailed Calculation</h3>
+                    
+                    <div class="space-y-4 text-slate-700 text-lg">
+                        <div class="flex items-start">
+                            <span class="font-bold mr-2">1.</span>
+                            <div class="w-full overflow-hidden">
+                                <p><strong data-i18n="formula_used">Formula used:</strong></p>
+                                <div class="bg-slate-50 py-2 px-4 rounded text-center mt-2 border border-slate-100 overflow-x-auto" id="formula-container">
+                                    <!-- CSS Fraction จะถูกแทรกที่นี่ -->
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="flex items-start">
+                            <span class="font-bold mr-2">2.</span>
+                            <div>
+                                <p><strong data-i18n="substitute_vals">Substitute values:</strong></p>
+                                <p class="mt-2 ml-2 font-mono bg-slate-100 text-slate-800 px-4 py-2 rounded inline-block border border-slate-200">
+                                    <span class="text-xl font-bold" id="calc-symbol">&epsilon; = </span>
+                                    <span class="text-xl frac text-indigo-700 font-bold">
+                                        <span id="step-numerator">0.50</span>
+                                        <span id="step-denominator">2.00</span>
+                                    </span>
+                                </p>
+                            </div>
+                        </div>
+
+                        <div class="flex items-start">
+                            <span class="font-bold mr-2">3.</span>
+                            <div class="w-full">
+                                <p><strong data-i18n="result">Result:</strong></p>
+                                <div class="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                    <div class="bg-slate-50 border border-slate-200 rounded p-3 text-center" id="res-box-1">
+                                        <p class="text-sm text-slate-600 font-semibold mb-1" id="res-label-1">Strain Value</p>
+                                        <p class="text-2xl font-bold text-slate-800" id="step-res">0.2500</p>
+                                    </div>
+                                    <div class="bg-indigo-50 border border-indigo-200 rounded p-3 text-center" id="res-box-2">
+                                        <p class="text-sm text-indigo-700 font-semibold mb-1" data-i18n="percentage">Percentage (%)</p>
+                                        <p class="text-2xl font-bold text-indigo-700" id="step-res-percent">25.00 %</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+        
+        <!-- Section 3: Interactive Example (ตัวอย่างที่ผู้ใช้ปรับค่าได้เอง) -->
+        <section class="bg-white rounded-xl shadow-sm p-6 md:p-8 border border-slate-200 mb-8">
+            <h2 class="text-2xl font-bold text-slate-800 mb-4 border-l-4 border-emerald-500 pl-3" data-i18n="ex_title">Interactive Example: Calculate it yourself</h2>
+            <p class="text-slate-600 mb-6" data-i18n="ex_desc">Try changing the numbers in the problem below to see how the step-by-step solution updates automatically.</p>
+            
+            <!-- กรอกโจทย์ -->
+            <div class="bg-emerald-50 border border-emerald-200 rounded-lg p-5 mb-6 text-lg text-slate-800 leading-9 shadow-inner">
+                <span data-i18n="ex_prob1">"A metal rod with an initial length of</span>
+                <input type="number" id="ex-in-l0" value="5" class="w-24 px-2 py-1 mx-2 rounded border border-emerald-300 shadow-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 text-center font-bold text-emerald-700" min="0.1" step="0.1"> 
+                <strong data-i18n="ex_prob2">meters</strong> 
+                <span data-i18n="ex_prob3">is subjected to an axial force, causing its length to change by</span>
+                <input type="number" id="ex-in-dl" value="1.5" class="w-24 px-2 py-1 mx-2 rounded border border-emerald-300 shadow-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 text-center font-bold text-emerald-700" step="0.1"> 
+                <strong data-i18n="ex_prob4">millimeters.</strong> 
+                <br>
+                <span data-i18n="ex_prob5">Find the normal strain in percentage and microstrain."</span>
+            </div>
+
+            <!-- แสดงวิธีทำ -->
+            <div class="bg-white border border-slate-200 rounded-lg p-6" id="ex-solution">
+                <!-- Dynamically generated pure HTML solution goes here -->
+            </div>
+        </section>
+
+    </main>
+
+    <!-- Footer (ส่วนท้าย) -->
+    <footer class="bg-slate-800 text-slate-300 py-6 mt-auto">
+        <div class="max-w-7xl mx-auto px-4 text-center">
+            <p class="mb-2" data-i18n="footer_desc">This educational material is created for deep diving into Physical Strain.</p>
+            <p class="text-sm font-light"><span data-i18n="footer_credit">Credit:</span> <a href="https://opensimlab.org" target="_blank" class="text-blue-400 hover:text-blue-300 font-semibold">OpenSimLab.org</a></p>
+            <p class="text-sm font-light mt-1"><span data-i18n="footer_coder">Code author:</span> <span class="text-white font-medium text-blue-300">gemini</span></p>
+        </div>
+    </footer>
+
+    <!-- Scripts (จาวาสคริปต์สำหรับการทำงานทั้งหมด) -->
+    <script>
+        // --- 1. Translation Dictionary (พจนานุกรมแปลภาษา EN/TH) ---
+        // หลีกเลี่ยงการพึ่งพา MathJax โดยใช้ HTML Entities พื้นฐาน (เช่น &epsilon;, <sub>) เพื่อความเสถียร 100%
+        const i18n = {
+            en: {
+                header_title: "Physics: Strain",
+                header_subtitle: "Learn about material deformation with interactive 3D models.",
+                theory_title: "What is Strain?",
+                theory_desc: "When an external force is applied to an object (such as tension, compression, or shear), the object undergoes a change in shape or size. In physics, <strong>Strain</strong> is the measure of this <strong>\"deformation ratio\"</strong> compared to its original dimensions.",
+                theory_note: "💡 <strong>Note:</strong> Since strain is a ratio of two quantities with the same units (e.g., meters divided by meters), it is a <strong>dimensionless quantity</strong>. However, in engineering, it is often expressed as a percentage (%) or in microstrain (&mu;&epsilon;).",
+                types_title: "Types of Strain",
+                type1_title: "1. Normal Strain",
+                type1_content: `
+                    <p class="text-sm mb-3">Occurs when an object is subjected to <strong>Tension</strong> or <strong>Compression</strong> along its axis, changing its length.</p>
+                    <div class="text-xl font-bold text-indigo-700 text-center mb-3 bg-indigo-50 py-3 rounded shadow-inner overflow-x-auto flex justify-center items-center">
+                        &epsilon; = <div class="frac"><span>&Delta;L</span><span>L<sub>0</sub></span></div>
+                    </div>
+                    <div class="text-sm text-slate-600 bg-slate-50 p-3 rounded border border-slate-100">
+                        <b class="text-slate-700">Variables:</b>
+                        <div class="mt-1 space-y-1">
+                            <div>&bull; <b>&epsilon;</b> : Normal Strain</div>
+                            <div>&bull; <b>&Delta;L</b> : Change in length</div>
+                            <div>&bull; <b>L<sub>0</sub></b> : Original length</div>
+                        </div>
+                    </div>
+                `,
+                type2_title: "2. Shear Strain",
+                type2_content: `
+                    <p class="text-sm mb-3">Occurs when a shear force acts parallel to an object's surface, causing angular deformation (distortion from original right angles).</p>
+                    <div class="text-xl font-bold text-green-700 text-center mb-3 bg-green-50 py-3 rounded shadow-inner overflow-x-auto flex justify-center items-center">
+                        &gamma; = <div class="frac"><span>&Delta;x</span><span>h</span></div>
+                    </div>
+                    <div class="text-sm text-slate-600 bg-slate-50 p-3 rounded border border-slate-100">
+                        <b class="text-slate-700">Variables:</b>
+                        <div class="mt-1 space-y-1">
+                            <div>&bull; <b>&gamma;</b> : Shear Strain</div>
+                            <div>&bull; <b>&Delta;x</b> : Surface displacement</div>
+                            <div>&bull; <b>h</b> : Height / Perpendicular distance</div>
+                        </div>
+                    </div>
+                `,
+                type3_title: "3. Volumetric Strain",
+                type3_content: `
+                    <p class="text-sm mb-3">Occurs when an object is subjected to uniform pressure from all directions, causing a change in its total volume.</p>
+                    <div class="text-xl font-bold text-purple-700 text-center mb-3 bg-purple-50 py-3 rounded shadow-inner overflow-x-auto flex justify-center items-center">
+                        &epsilon;<sub>v</sub> = <div class="frac"><span>&Delta;V</span><span>V<sub>0</sub></span></div>
+                    </div>
+                    <div class="text-sm text-slate-600 bg-slate-50 p-3 rounded border border-slate-100">
+                        <b class="text-slate-700">Variables:</b>
+                        <div class="mt-1 space-y-1">
+                            <div>&bull; <b>&epsilon;<sub>v</sub></b> : Volumetric Strain</div>
+                            <div>&bull; <b>&Delta;V</b> : Change in volume</div>
+                            <div>&bull; <b>V<sub>0</sub></b> : Original volume</div>
+                        </div>
+                    </div>
+                `,
+                sim_title: "3D Simulation & Calculation",
+                tab_normal: "1. Normal Strain",
+                tab_shear: "2. Shear Strain",
+                tab_volumetric: "3. Volumetric Strain",
+                cam_control: "Rotate: Left Click | Zoom: Scroll",
+                force_vector: "Force Vector (F)",
+                panel_title_normal: "Simulate Deformation (Normal)",
+                panel_title_shear: "Simulate Deformation (Shear)",
+                panel_title_volumetric: "Simulate Deformation (Volumetric)",
+                lbl_l0: "Original Length (L<sub>0</sub>)",
+                lbl_dl: "Change in Length (&Delta;L)",
+                shrink: "Shrink (-)",
+                stretch: "Stretch (+)",
+                lbl_h: "Height (h)",
+                lbl_dx: "Displacement (&Delta;x)",
+                left: "Left (-)",
+                right: "Right (+)",
+                lbl_v0: "Original Volume (V<sub>0</sub>)",
+                lbl_dv: "Change in Volume (&Delta;V)",
+                compress: "Compress (-)",
+                expand: "Expand (+)",
+                calc_detail_title: "Detailed Calculation",
+                formula_used: "Formula used:",
+                substitute_vals: "Substitute values:",
+                result: "Result:",
+                strain_val: "Strain Value",
+                percentage: "Percentage (%)",
+                ex_title: "Interactive Example: Calculate it yourself",
+                ex_desc: "Try changing the numbers in the problem below to see how the step-by-step solution updates automatically.",
+                ex_prob1: "\"A metal rod with an initial length of",
+                ex_prob2: "meters",
+                ex_prob3: "is subjected to an axial force, causing its length to change by",
+                ex_prob4: "millimeters.",
+                ex_prob5: "Find the normal strain in percentage and microstrain.\"",
+                ex_sol_step1: "<strong>1. Convert units to be consistent (Meters):</strong>",
+                ex_sol_l0: "Original Length (L<sub>0</sub>)",
+                ex_sol_dl: "Change in Length (&Delta;L)",
+                ex_sol_step2: "<strong>2. Calculate the Strain (&epsilon;):</strong>",
+                ex_sol_step3: "<strong>3. Convert to Percentage and Microstrain:</strong>",
+                ex_sol_perc: "In Percentage:",
+                ex_sol_micro: "In Microstrain (&mu;&epsilon;):",
+                ex_error: "Please enter valid numbers (Length must be greater than 0).",
+                footer_desc: "This educational material is created for deep diving into Physical Strain.",
+                footer_credit: "Credit:",
+                footer_coder: "Code author:",
+                label_stretch: "Stretch",
+                label_shrink: "Shrink",
+                label_expand: "Expand",
+                label_compress: "Compress"
+            },
+            th: {
+                header_title: "ความเครียด (Strain) ทางฟิสิกส์",
+                header_subtitle: "เรียนรู้การเปลี่ยนรูปร่างของวัตถุและทดลองด้วยแบบจำลอง 3 มิติ ทั้ง 3 ประเภท",
+                theory_title: "ความเครียด (Strain) คืออะไร?",
+                theory_desc: "เมื่อวัตถุถูกกระทำด้วยแรงภายนอก (เช่น ถูกดึง ถูกบีบอัด หรือถูกเฉือน) วัตถุจะเกิดการเปลี่ยนแปลงรูปร่างหรือขนาด ในทางฟิสิกส์ <strong>ความเครียด (Strain)</strong> คือ ปริมาณที่ใช้วัด <strong>\"อัตราส่วนของการเปลี่ยนรูปร่าง\"</strong> เมื่อเทียบกับขนาดหรือรูปร่างเดิมของวัตถุ",
+                theory_note: "💡 <strong>ข้อสังเกต:</strong> เนื่องจากความเครียดคืออัตราส่วนระหว่างปริมาณที่มีหน่วยเดียวกัน (เช่น เมตร หารด้วย เมตร) ทำให้ความเครียดเป็นปริมาณที่ <strong>ไม่มีหน่วย (Dimensionless)</strong> แต่ในทางวิศวกรรมมักนิยมแสดงผลในรูปแบบเปอร์เซ็นต์ (%) หรือ ไมโครสเตรน (&mu;&epsilon;)",
+                types_title: "ประเภทของความเครียด",
+                type1_title: "1. ความเครียดตามยาว (Normal)",
+                type1_content: `
+                    <p class="text-sm mb-3">เกิดขึ้นเมื่อวัตถุถูก <strong>ดึง (Tension)</strong> หรือ <strong>อัด (Compression)</strong> ตามแนวแกน ทำให้ความยาวเปลี่ยนไป</p>
+                    <div class="text-xl font-bold text-indigo-700 text-center mb-3 bg-indigo-50 py-3 rounded shadow-inner overflow-x-auto flex justify-center items-center">
+                        &epsilon; = <div class="frac"><span>&Delta;L</span><span>L<sub>0</sub></span></div>
+                    </div>
+                    <div class="text-sm text-slate-600 bg-slate-50 p-3 rounded border border-slate-100">
+                        <b class="text-slate-700">นิยามตัวแปร:</b>
+                        <div class="mt-1 space-y-1">
+                            <div>&bull; <b>&epsilon; (เอปซิลอน)</b> : ความเครียดตามยาว</div>
+                            <div>&bull; <b>&Delta;L</b> : ระยะความยาวที่เปลี่ยนไป (ยืดหรือหด)</div>
+                            <div>&bull; <b>L<sub>0</sub></b> : ความยาวเริ่มต้นของวัตถุ</div>
+                        </div>
+                    </div>
+                `,
+                type2_title: "2. ความเครียดเฉือน (Shear)",
+                type2_content: `
+                    <p class="text-sm mb-3">เกิดขึ้นเมื่อมีแรงเฉือนมากระทำขนานกับผิววัตถุ ทำให้วัตถุเกิดการบิดเบี้ยวหรือเสียทรงจากมุมฉากเดิม</p>
+                    <div class="text-xl font-bold text-green-700 text-center mb-3 bg-green-50 py-3 rounded shadow-inner overflow-x-auto flex justify-center items-center">
+                        &gamma; = <div class="frac"><span>&Delta;x</span><span>h</span></div>
+                    </div>
+                    <div class="text-sm text-slate-600 bg-slate-50 p-3 rounded border border-slate-100">
+                        <b class="text-slate-700">นิยามตัวแปร:</b>
+                        <div class="mt-1 space-y-1">
+                            <div>&bull; <b>&gamma; (แกมมา)</b> : ความเครียดเฉือน</div>
+                            <div>&bull; <b>&Delta;x</b> : ระยะกระจัดที่ผิววัตถุเลื่อนไปขนานกับแรง</div>
+                            <div>&bull; <b>h</b> : ความหนาหรือระยะตั้งฉากจากฐาน</div>
+                        </div>
+                    </div>
+                `,
+                type3_title: "3. ความเครียดเชิงปริมาตร (Volumetric)",
+                type3_content: `
+                    <p class="text-sm mb-3">เกิดขึ้นเมื่อวัตถุถูกแรงบีบอัดจากทุกทิศทาง ทำให้ปริมาตรทั้งหมดของวัตถุเปลี่ยนไป (เช่น นำวัตถุไปจมน้ำลึก)</p>
+                    <div class="text-xl font-bold text-purple-700 text-center mb-3 bg-purple-50 py-3 rounded shadow-inner overflow-x-auto flex justify-center items-center">
+                        &epsilon;<sub>v</sub> = <div class="frac"><span>&Delta;V</span><span>V<sub>0</sub></span></div>
+                    </div>
+                    <div class="text-sm text-slate-600 bg-slate-50 p-3 rounded border border-slate-100">
+                        <b class="text-slate-700">นิยามตัวแปร:</b>
+                        <div class="mt-1 space-y-1">
+                            <div>&bull; <b>&epsilon;<sub>v</sub></b> : ความเครียดเชิงปริมาตร</div>
+                            <div>&bull; <b>&Delta;V</b> : ปริมาตรที่เปลี่ยนไป (ขยายหรือหด)</div>
+                            <div>&bull; <b>V<sub>0</sub></b> : ปริมาตรเริ่มต้นของวัตถุ</div>
+                        </div>
+                    </div>
+                `,
+                sim_title: "แบบจำลอง 3 มิติ และการคำนวณ",
+                tab_normal: "1. ความเครียดตามยาว",
+                tab_shear: "2. ความเครียดเฉือน",
+                tab_volumetric: "3. ความเครียดปริมาตร",
+                cam_control: "หมุน: คลิกซ้ายลาก | ซูม: สกอร์ลเมาส์",
+                force_vector: "ทิศทางของแรงกระทำ (F)",
+                panel_title_normal: "จำลองการเปลี่ยนรูปร่าง (ตามยาว)",
+                panel_title_shear: "จำลองการเปลี่ยนรูปร่าง (เฉือน)",
+                panel_title_volumetric: "จำลองการเปลี่ยนรูปร่าง (ปริมาตร)",
+                lbl_l0: "ความยาวเดิม (L<sub>0</sub>)",
+                lbl_dl: "ระยะที่เปลี่ยนไป (&Delta;L)",
+                shrink: "หดตัว (-)",
+                stretch: "ยืดออก (+)",
+                lbl_h: "ความสูง (h)",
+                lbl_dx: "ระยะกระจัด (&Delta;x)",
+                left: "เลื่อนซ้าย (-)",
+                right: "เลื่อนขวา (+)",
+                lbl_v0: "ปริมาตรเดิม (V<sub>0</sub>)",
+                lbl_dv: "ปริมาตรที่เปลี่ยนไป (&Delta;V)",
+                compress: "หด/โดนอัด (-)",
+                expand: "ขยายตัว (+)",
+                calc_detail_title: "ผลการคำนวณอย่างละเอียด",
+                formula_used: "สูตรที่ใช้:",
+                substitute_vals: "แทนค่าตัวเลข:",
+                result: "ผลลัพธ์:",
+                strain_val: "ค่าความเครียด",
+                percentage: "คิดเป็นเปอร์เซ็นต์ (%)",
+                ex_title: "ตัวอย่างการคำนวณแบบโต้ตอบ",
+                ex_desc: "ลองเปลี่ยนตัวเลขในโจทย์ด้านล่าง เพื่อดูวิธีทำแบบทีละขั้นตอนที่อัปเดตแบบอัตโนมัติ",
+                ex_prob1: "\"เสาโลหะต้นหนึ่งมีความยาวเริ่มต้น",
+                ex_prob2: "เมตร",
+                ex_prob3: "เมื่อรับแรงกระทำ พบว่าความยาวเปลี่ยนไป",
+                ex_prob4: "มิลลิเมตร",
+                ex_prob5: "จงหาความเครียดตามยาวที่เกิดขึ้นในหน่วยเปอร์เซ็นต์และไมโครสเตรน\"",
+                ex_sol_step1: "<strong>1. แปลงหน่วยให้เหมือนกัน (เมตร):</strong>",
+                ex_sol_l0: "ความยาวเริ่มต้น (L<sub>0</sub>)",
+                ex_sol_dl: "ระยะที่เปลี่ยนไป (&Delta;L)",
+                ex_sol_step2: "<strong>2. คำนวณหาความเครียด (&epsilon;):</strong>",
+                ex_sol_step3: "<strong>3. แปลงเป็นเปอร์เซ็นต์และไมโครสเตรน:</strong>",
+                ex_sol_perc: "คิดเป็นเปอร์เซ็นต์:",
+                ex_sol_micro: "คิดเป็นไมโครสเตรน (&mu;&epsilon;):",
+                ex_error: "กรุณาใส่ตัวเลขที่ถูกต้อง (ความยาวเริ่มต้นต้องมากกว่า 0)",
+                footer_desc: "สื่อการเรียนรู้นี้จัดทำขึ้นเพื่อเจาะลึกหัวข้อ ความเครียด (Strain) ทางฟิสิกส์",
+                footer_credit: "เครดิตเวบ:",
+                footer_coder: "ผู้เขียนโค๊ดคือ:",
+                label_stretch: "ยืด",
+                label_shrink: "หด",
+                label_expand: "ขยาย",
+                label_compress: "หด"
+            }
+        };
+
+        // --- 2. State & Basic Functions (สถานะและฟังก์ชันพื้นฐาน) ---
+        let currentLang = 'en'; // ตั้งภาษาเริ่มต้นเป็นภาษาอังกฤษ
+        let currentMode = 'normal';
+
+        // ฟังก์ชันสลับภาษา (Language Switcher)
+        function setLang(lang) {
+            currentLang = lang;
+            
+            // เปลี่ยนสีปุ่มเมนูภาษา
+            document.getElementById('btn-en').classList.remove('active');
+            document.getElementById('btn-th').classList.remove('active');
+            document.getElementById(`btn-${lang}`).classList.add('active');
+
+            // วนลูปเปลี่ยนข้อความทั้งหมดที่มี attribute 'data-i18n'
+            document.querySelectorAll('[data-i18n]').forEach(el => {
+                const key = el.getAttribute('data-i18n');
+                if (i18n[lang][key]) {
+                    el.innerHTML = i18n[lang][key];
+                }
+            });
+
+            // อัปเดตเนื้อหาในแท็บและตัวอย่างแบบ Interactive ให้ตรงกับภาษาใหม่
+            setMode(currentMode, true);
+            updateExample();
+        }
+
+        // --- 3. DOM Elements (ดึงออบเจ็กต์จาก HTML) ---
+        const sliderL0 = document.getElementById('slider-l0');
+        const sliderDL = document.getElementById('slider-dl');
+        const valL0 = document.getElementById('val-l0');
+        const valDL = document.getElementById('val-dl');
+        const valDLPercent = document.getElementById('val-dl-percent');
+        
+        const sliderH = document.getElementById('slider-h');
+        const sliderDX = document.getElementById('slider-dx');
+        const valH = document.getElementById('val-h');
+        const valDX = document.getElementById('val-dx');
+        const valDXPercent = document.getElementById('val-dx-percent');
+
+        const sliderV0 = document.getElementById('slider-v0');
+        const sliderDV = document.getElementById('slider-dv');
+        const valV0 = document.getElementById('val-v0');
+        const valDV = document.getElementById('val-dv');
+        const valDVPercent = document.getElementById('val-dv-percent');
+
+        const stepNumerator = document.getElementById('step-numerator');
+        const stepDenominator = document.getElementById('step-denominator');
+        const stepRes = document.getElementById('step-res');
+        const stepResPercent = document.getElementById('step-res-percent');
+        const mathFormulaContainer = document.getElementById('formula-container');
+        const calcSymbol = document.getElementById('calc-symbol');
+        const resLabel1 = document.getElementById('res-label-1');
+
+        // ของวาดเส้น (SVG Lines)
+        const pathBase = document.getElementById('path-base');
+        const tickBaseTop = document.getElementById('tick-base-top');
+        const tickBaseBottom = document.getElementById('tick-base-bottom');
+        const labelBase = document.getElementById('label-base');
+        const pathChange = document.getElementById('path-change');
+        const tickChangeTop = document.getElementById('tick-change-top');
+        const tickChangeBottom = document.getElementById('tick-change-bottom');
+        const guideChangeStart = document.getElementById('guide-change-start');
+        const guideChangeEnd = document.getElementById('guide-change-end');
+        const labelChange = document.getElementById('label-change');
+        const legendForce = document.getElementById('legend-force');
+
+        // --- 4. Three.js Setup (การตั้งค่ากราฟิก 3 มิติ) ---
+        const container = document.getElementById('canvas-container');
+        const scene = new THREE.Scene();
+        
+        // ตั้งค่ากล้อง
+        const camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.1, 100);
+        camera.position.set(0, 3, 13);
+
+        // ตั้งค่าตัวเรนเดอร์ (Renderer)
+        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        renderer.setSize(container.clientWidth, container.clientHeight);
+        renderer.setPixelRatio(window.devicePixelRatio);
+        container.appendChild(renderer.domElement);
+
+        // การควบคุมการหมุนด้วยเมาส์ (OrbitControls)
+        const controls = new THREE.OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.05;
+        controls.minDistance = 5;
+        controls.maxDistance = 25;
+
+        // จัดแสง (Lighting)
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
+        scene.add(ambientLight);
+        const dirLight = new THREE.DirectionalLight(0xffffff, 0.7);
+        dirLight.position.set(5, 10, 5);
+        scene.add(dirLight);
+
+        // --- 5. 3D Object Groups (กลุ่มวัตถุ 3 มิติแยกตามประเภทความเครียด) ---
+        const groupNormal = new THREE.Group();
+        const groupShear = new THREE.Group();
+        const groupVolumetric = new THREE.Group();
+        scene.add(groupNormal);
+        scene.add(groupShear);
+        scene.add(groupVolumetric);
+
+        // ตารางเส้นกริดอ้างอิงบนพื้น (Grid Floor)
+        const gridHelper = new THREE.GridHelper(15, 15, 0x94a3b8, 0xcbd5e1);
+        gridHelper.material.transparent = true;
+        gridHelper.material.opacity = 0.5;
+        scene.add(gridHelper);
+
+        const arrowLength = 1.5;
+        const arrowColor = 0xef4444; // สีแดงของแรงกระทำ (Force)
+
+        // [5.1] วัตถุสำหรับ NORMAL STRAIN (ทรงกระบอก)
+        const radiusNormal = 0.6;
+        const geoGhostN = new THREE.CylinderGeometry(radiusNormal*1.02, radiusNormal*1.02, 1, 32);
+        geoGhostN.translate(0, 0.5, 0); 
+        const matGhostN = new THREE.MeshBasicMaterial({ color: 0x94a3b8, transparent: true, opacity: 0.3 });
+        const meshGhostN = new THREE.Mesh(geoGhostN, matGhostN); // ทรงกระบอกโปร่งแสง (ขนาดเดิม L0)
+        groupNormal.add(meshGhostN);
+
+        const geoSolidN = new THREE.CylinderGeometry(radiusNormal, radiusNormal, 1, 32);
+        geoSolidN.translate(0, 0.5, 0);
+        const matSolidN = new THREE.MeshStandardMaterial({ color: 0x3b82f6, roughness: 0.3, metalness: 0.2 });
+        const meshSolidN = new THREE.Mesh(geoSolidN, matSolidN); // ทรงกระบอกทึบ (ขนาดใหม่ L)
+        groupNormal.add(meshSolidN);
+
+        // ลูกศรแรง (Tension / Compression)
+        const arrowNTop = new THREE.ArrowHelper(new THREE.Vector3(0,1,0), new THREE.Vector3(0,1,0), arrowLength, arrowColor, 0.4, 0.3);
+        const arrowNBot = new THREE.ArrowHelper(new THREE.Vector3(0,-1,0), new THREE.Vector3(0,0,0), arrowLength, arrowColor, 0.4, 0.3);
+        groupNormal.add(arrowNTop);
+        groupNormal.add(arrowNBot);
+
+        // [5.2] วัตถุสำหรับ SHEAR STRAIN (กล่องสี่เหลี่ยม)
+        const geoShear = new THREE.BoxGeometry(2, 1, 2);
+        geoShear.translate(0, 0.5, 0);
+        const matGhostS = new THREE.MeshBasicMaterial({ color: 0x94a3b8, transparent: true, opacity: 0.3 });
+        const meshGhostS = new THREE.Mesh(geoShear, matGhostS); // กล่องโปร่งแสงมุมฉาก (ก่อนเฉือน)
+        groupShear.add(meshGhostS);
+
+        const matSolidS = new THREE.MeshStandardMaterial({ color: 0x10b981, roughness: 0.3, metalness: 0.2 });
+        const meshSolidS = new THREE.Mesh(geoShear, matSolidS);
+        meshSolidS.matrixAutoUpdate = false; // ปิดออโต้อัปเดตเมทริกซ์ เพื่อคำนวณ Shear Matrix ด้วยตนเอง
+        groupShear.add(meshSolidS);
+
+        // ลูกศรแรงเฉือนขนานกับพื้นผิว (Parallel Force)
+        const arrowSTop = new THREE.ArrowHelper(new THREE.Vector3(1,0,0), new THREE.Vector3(0,1,0), arrowLength, arrowColor, 0.4, 0.3);
+        const arrowSBot = new THREE.ArrowHelper(new THREE.Vector3(-1,0,0), new THREE.Vector3(0,0,0), arrowLength, arrowColor, 0.4, 0.3);
+        groupShear.add(arrowSTop);
+        groupShear.add(arrowSBot);
+        groupShear.visible = false;
+
+        // [5.3] วัตถุสำหรับ VOLUMETRIC STRAIN (ทรงกลม)
+        groupVolumetric.position.set(0, 2, 0); // ยกลอยขึ้นเหนือพื้น
+        const geoSphere = new THREE.SphereGeometry(1, 32, 32);
+        const matGhostV = new THREE.MeshBasicMaterial({ color: 0x94a3b8, transparent: true, opacity: 0.3 });
+        const meshGhostV = new THREE.Mesh(geoSphere, matGhostV); // ทรงกลมโปร่งแสง (ขนาดเดิม V0)
+        groupVolumetric.add(meshGhostV);
+
+        const matSolidV = new THREE.MeshStandardMaterial({ color: 0xa855f7, roughness: 0.3, metalness: 0.2 });
+        const meshSolidV = new THREE.Mesh(geoSphere, matSolidV); // ทรงกลมทึบ (ขนาดใหม่ V)
+        groupVolumetric.add(meshSolidV);
+        groupVolumetric.visible = false;
+
+
+        // --- 6. UI Logic & Calculation (ตรรกะแผงควบคุมและการคำนวณ) ---
+        
+        // ฟังก์ชันสลับโหมดตามแท็บที่ผู้ใช้เลือก
+        function setMode(mode, fromLangSwitch = false) {
+            currentMode = mode;
+            
+            // รีเซ็ตคลาสของปุ่ม Tab ทั้งหมด
+            document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active', 'bg-indigo-100', 'text-indigo-700'));
+            document.getElementById(`tab-${mode}`).classList.add('active');
+
+            // ซ่อน/แสดง แผงควบคุม (Sliders)
+            document.getElementById('panel-normal').style.display = mode === 'normal' ? 'block' : 'none';
+            document.getElementById('panel-shear').style.display = mode === 'shear' ? 'block' : 'none';
+            document.getElementById('panel-volumetric').style.display = mode === 'volumetric' ? 'block' : 'none';
+
+            // ซ่อน/แสดง กรุ๊ปออบเจ็กต์ 3D
+            groupNormal.visible = mode === 'normal';
+            groupShear.visible = mode === 'shear';
+            groupVolumetric.visible = mode === 'volumetric';
+
+            // อัปเดตชื่อหัวข้อและสูตร HTML ให้ตรงตามโหมด (ไม่ใช้ MathJax ป้องกันการแครช)
+            if (mode === 'normal') {
+                document.getElementById('panel-title').innerText = i18n[currentLang]['panel_title_normal'];
+                mathFormulaContainer.innerHTML = '<span class="text-xl font-bold">&epsilon; = <div class="frac"><span>&Delta;L</span><span>L<sub>0</sub></span></div></span>';
+                calcSymbol.innerHTML = '&epsilon; = ';
+                resLabel1.innerHTML = `${i18n[currentLang]['strain_val']} (&epsilon;)`;
+                labelBase.innerHTML = 'L<sub>0</sub>';
+                legendForce.style.display = 'flex';
+            } else if (mode === 'shear') {
+                document.getElementById('panel-title').innerText = i18n[currentLang]['panel_title_shear'];
+                mathFormulaContainer.innerHTML = '<span class="text-xl font-bold">&gamma; = <div class="frac"><span>&Delta;x</span><span>h</span></div></span>';
+                calcSymbol.innerHTML = '&gamma; = ';
+                resLabel1.innerHTML = `${i18n[currentLang]['strain_val']} (&gamma;)`;
+                labelBase.innerHTML = 'h';
+                legendForce.style.display = 'flex';
+            } else if (mode === 'volumetric') {
+                document.getElementById('panel-title').innerText = i18n[currentLang]['panel_title_volumetric'];
+                mathFormulaContainer.innerHTML = '<span class="text-xl font-bold">&epsilon;<sub>v</sub> = <div class="frac"><span>&Delta;V</span><span>V<sub>0</sub></span></div></span>';
+                calcSymbol.innerHTML = '&epsilon;<sub>v</sub> = ';
+                resLabel1.innerHTML = `${i18n[currentLang]['strain_val']} (&epsilon;<sub>v</sub>)`;
+                labelBase.innerHTML = `V<sub>0</sub>`;
+                legendForce.style.display = 'none'; // ไม่แสดงลูกศรสำหรับปริมาตร
+            }
+
+            if (!fromLangSwitch) {
+                updateSimulation(); // บังคับอัปเดตโมเดลให้ตรงกับข้อมูล Slider
+            }
+        }
+
+        // ฟังก์ชันตกแต่งสี UI เปอร์เซ็นต์ (+ / -)
+        function updatePercentUI(valEl, percent, mode) {
+            valEl.innerText = `(${percent > 0 ? '+' : ''}${percent.toFixed(1)}%)`;
+            let cClass = "text-slate-600 bg-slate-200";
+            if (percent > 0) {
+                cClass = mode === 'shear' ? "text-green-700 bg-green-100" : (mode === 'volumetric' ? "text-purple-700 bg-purple-100" : "text-emerald-700 bg-emerald-100");
+            } else if (percent < 0) {
+                cClass = "text-red-700 bg-red-100";
+            }
+            valEl.className = `${cClass} font-bold px-2 py-1 rounded text-sm`;
+        }
+
+        // ฟังก์ชันอัปเดตกล่องแสดงผลลัพธ์การคำนวณด้านขวาล่าง
+        function updateResultUI(resBox1, resBox2, resLabelColor, resLabelPercentColor, strain, percent) {
+            stepRes.innerText = strain.toFixed(4);
+            stepResPercent.innerText = percent.toFixed(2) + " %";
+            
+            resBox1.className = `bg-${resLabelColor}-50 border border-${resLabelColor}-200 rounded p-3 text-center`;
+            resBox1.querySelector('p:first-child').className = `text-sm text-${resLabelColor}-700 font-semibold mb-1`;
+            stepRes.className = `text-2xl font-bold text-${resLabelColor}-700`;
+
+            resBox2.className = `bg-${resLabelPercentColor}-50 border border-${resLabelPercentColor}-200 rounded p-3 text-center`;
+            resBox2.querySelector('p:first-child').className = `text-sm text-${resLabelPercentColor}-700 font-semibold mb-1`;
+            stepResPercent.className = `text-2xl font-bold text-${resLabelPercentColor}-700`;
+        }
+
+        // --- Core Simulation Function (อัปเดตทั้งสูตรและกราฟิก 3D ทุกครั้งที่เลื่อน Slider) ---
+        function updateSimulation() {
+            let rawStrain = 0, percent = 0, cleanStrain = 0;
+
+            if (currentMode === 'normal') {
+                let l0 = parseFloat(sliderL0.value);
+                let dl = parseFloat(sliderDL.value);
+                if (l0 + dl <= 0.1) { dl = -l0 + 0.1; sliderDL.value = dl; } // ป้องกันโมเดลความยาวติดลบ
+                const l_final = l0 + dl;
+                
+                rawStrain = dl / l0;
+                cleanStrain = Number(rawStrain.toPrecision(6)); // ล้างปัญหาทศนิยมส่วนเกินของคอมพิวเตอร์
+                percent = cleanStrain * 100;
+
+                valL0.innerText = l0.toFixed(1) + " m";
+                valDL.innerText = (dl > 0 ? "+" : "") + dl.toFixed(2) + " m";
+                updatePercentUI(valDLPercent, percent, 'normal');
+
+                stepNumerator.innerText = dl.toFixed(2);
+                stepDenominator.innerText = l0.toFixed(2);
+                
+                let colorClass = dl >= 0 ? 'green' : 'red';
+                updateResultUI(document.getElementById('res-box-1'), document.getElementById('res-box-2'), colorClass, dl >= 0 ? 'indigo' : 'red', cleanStrain, percent);
+
+                // เปลี่ยนสีโมเดล 3D (ยืด=เขียว, หด=แดง, ปกติ=ฟ้า)
+                if (dl > 0) matSolidN.color.setHex(0x10b981); else if (dl < 0) matSolidN.color.setHex(0xef4444); else matSolidN.color.setHex(0x3b82f6);
+                meshGhostN.scale.set(1, l0, 1);
+                meshSolidN.scale.set(1, l_final, 1);
+                
+                // จัดการลูกศรแรงดึง/อัด
+                if (dl !== 0) {
+                    arrowNTop.visible = true;
+                    arrowNBot.visible = true;
+                    if (dl > 0) { 
+                        // แรงดึง (Tension): ชี้ออก
+                        arrowNTop.setDirection(new THREE.Vector3(0, 1, 0));
+                        arrowNBot.setDirection(new THREE.Vector3(0, -1, 0));
+                        arrowNTop.position.set(0, l_final, 0); 
+                        arrowNBot.position.set(0, 0, 0);
+                    } else { 
+                        // แรงอัด (Compression): ชี้เข้า
+                        arrowNTop.setDirection(new THREE.Vector3(0, -1, 0));
+                        arrowNBot.setDirection(new THREE.Vector3(0, 1, 0));
+                        arrowNTop.position.set(0, l_final + arrowLength, 0);
+                        arrowNBot.position.set(0, -arrowLength, 0); 
+                    }
+                } else {
+                    arrowNTop.visible = false;
+                    arrowNBot.visible = false;
+                }
+
+                // อัปเดตคำบนเส้นบอกระยะ
+                const strWord = dl >= 0 ? i18n[currentLang]['label_stretch'] : i18n[currentLang]['label_shrink'];
+                const sign = dl >= 0 ? '+' : '-';
+                labelChange.innerHTML = `${strWord} ${sign}&Delta;L`;
+                labelChange.className = dl >= 0 ? "dim-label text-dim-change" : "dim-label text-dim-change-neg";
+                labelChange.style.opacity = dl !== 0 ? 1 : 0;
+
+            } 
+            else if (currentMode === 'shear') {
+                let h = parseFloat(sliderH.value);
+                let dx = parseFloat(sliderDX.value);
+                
+                rawStrain = dx / h;
+                cleanStrain = Number(rawStrain.toPrecision(6));
+                percent = cleanStrain * 100;
+
+                valH.innerText = h.toFixed(1) + " m";
+                valDX.innerText = (dx > 0 ? "+" : "") + dx.toFixed(2) + " m";
+                updatePercentUI(valDXPercent, percent, 'shear');
+
+                stepNumerator.innerText = dx.toFixed(2);
+                stepDenominator.innerText = h.toFixed(2);
+                
+                updateResultUI(document.getElementById('res-box-1'), document.getElementById('res-box-2'), 'green', 'indigo', cleanStrain, percent);
+
+                // เปลี่ยนรูปร่าง 3D ให้เป็นการเฉือน (Pure Shear Matrix)
+                meshGhostS.scale.set(1, h, 1);
+                
+                // คำนวณเมทริกซ์เพื่อให้ฐานอยู่กับที่และยอดเลื่อนตามแกน X
+                const shearMat = new THREE.Matrix4().set(
+                    1, dx/h, 0, 0,
+                    0, 1,    0, 0,
+                    0, 0,    1, 0,
+                    0, 0,    0, 1
+                );
+                const scaleMat = new THREE.Matrix4().makeScale(1, h, 1);
+                meshSolidS.matrix.copy(shearMat).multiply(scaleMat); // ควบคุมเมทริกซ์โดยตรง
+
+                // จัดการลูกศรแรงเฉือนที่ผิวบน-ล่าง
+                if (dx !== 0) {
+                    arrowSTop.visible = true;
+                    arrowSBot.visible = true;
+                    if (dx > 0) {
+                        arrowSTop.setDirection(new THREE.Vector3(1,0,0));
+                        arrowSBot.setDirection(new THREE.Vector3(-1,0,0));
+                        arrowSTop.position.set(dx/2, h, 0); 
+                        arrowSBot.position.set(-dx/2, 0, 0); 
+                    } else {
+                        arrowSTop.setDirection(new THREE.Vector3(-1,0,0));
+                        arrowSBot.setDirection(new THREE.Vector3(1,0,0));
+                        arrowSTop.position.set(dx/2, h, 0);
+                        arrowSBot.position.set(-dx/2, 0, 0);
+                    }
+                } else {
+                    arrowSTop.visible = false;
+                    arrowSBot.visible = false;
+                }
+
+                labelChange.innerHTML = '&Delta;x';
+                labelChange.className = "dim-label text-dim-change";
+                labelChange.style.opacity = dx !== 0 ? 1 : 0;
+            }
+            else if (currentMode === 'volumetric') {
+                let v0 = parseFloat(sliderV0.value);
+                let dv = parseFloat(sliderDV.value);
+                if (v0 + dv <= 0.1) { dv = -v0 + 0.1; sliderDV.value = dv; }
+                const v_final = v0 + dv;
+
+                rawStrain = dv / v0;
+                cleanStrain = Number(rawStrain.toPrecision(6));
+                percent = cleanStrain * 100;
+
+                valV0.innerText = v0.toFixed(1) + " m³";
+                valDV.innerText = (dv > 0 ? "+" : "") + dv.toFixed(2) + " m³";
+                updatePercentUI(valDVPercent, percent, 'volumetric');
+
+                stepNumerator.innerText = dv.toFixed(2);
+                stepDenominator.innerText = v0.toFixed(2);
+
+                let colorClass = dv >= 0 ? 'purple' : 'red';
+                updateResultUI(document.getElementById('res-box-1'), document.getElementById('res-box-2'), colorClass, dv >= 0 ? 'indigo' : 'red', cleanStrain, percent);
+
+                // แปลงปริมาตร (Volume) กลับเป็นรัศมี (Radius) เพื่อเปลี่ยนสเกลวงกลม 3D
+                // V = (4/3)*PI*r^3  =>  r = cbrt( 3V / 4*PI )
+                const r0 = Math.cbrt((3 * v0) / (4 * Math.PI));
+                const rFinal = Math.cbrt((3 * v_final) / (4 * Math.PI));
+
+                if (dv > 0) matSolidV.color.setHex(0xa855f7);
+                else if (dv < 0) matSolidV.color.setHex(0xef4444);
+                else matSolidV.color.setHex(0x64748b);
+
+                meshGhostV.scale.set(r0, r0, r0);
+                meshSolidV.scale.set(rFinal, rFinal, rFinal);
+
+                const strWord = dv >= 0 ? i18n[currentLang]['label_expand'] : i18n[currentLang]['label_compress'];
+                const sign = dv >= 0 ? '+' : '-';
+                labelChange.innerHTML = `${strWord} ${sign}&Delta;V`;
+                labelChange.className = dv >= 0 ? "dim-label text-dim-change border-purple-500 !text-purple-600" : "dim-label text-dim-change-neg";
+                labelChange.style.opacity = dv !== 0 ? 1 : 0;
+            }
+        }
+
+        // --- 7. SVG Dimension Lines (คำนวณและวาดเส้นบอกระยะบน 2D Overlay ทับ 3D) ---
+        
+        // ฟังก์ชันแปลงพิกัดจากโลก 3 มิติ เป็นพิกัดแกน X, Y บนหน้าจอ (Screen Coordinates)
+        function toScreenXY(vector3) {
+            const v = vector3.clone();
+            v.project(camera);
+            const x = Math.round((v.x + 1) * container.clientWidth / 2);
+            const y = Math.round((-v.y + 1) * container.clientHeight / 2);
+            return { x, y };
+        }
+
+        // วาดขีดบอกระยะแนวนอนหรือแนวตั้ง
+        function drawTick(element, pt, isHorizontal = false) {
+            if(isHorizontal) {
+                element.setAttribute('x1', pt.x);
+                element.setAttribute('y1', pt.y);
+                element.setAttribute('x2', pt.x + 20);
+                element.setAttribute('y2', pt.y);
+            } else {
+                element.setAttribute('x1', pt.x - 5);
+                element.setAttribute('y1', pt.y);
+                element.setAttribute('x2', pt.x + 5);
+                element.setAttribute('y2', pt.y);
+            }
+        }
+        
+        // ลอจิกสำหรับวาดเส้นบอกระยะอัปเดตตลอดเวลาที่กล้องขยับหรือค่าเปลี่ยน
+        function updateDimensionLines() {
+            // รีเซ็ตเส้นประไกด์ไลน์ (Guideline)
+            guideChangeStart.setAttribute('d', '');
+            guideChangeEnd.setAttribute('d', '');
+
+            if (currentMode === 'normal') {
+                document.getElementById('svg-overlay').style.display = 'block';
+                const l0 = parseFloat(sliderL0.value);
+                const dl = parseFloat(sliderDL.value);
+                const l_final = l0 + dl;
+                
+                // วาด L0 (ซ้ายสุด)
+                const offset_x = radiusNormal + 0.5;
+                const offset_x_dl = radiusNormal + 1.2;
+
+                const pt_base = toScreenXY(new THREE.Vector3(-offset_x, 0, 0));
+                const pt_top = toScreenXY(new THREE.Vector3(-offset_x, l0, 0));
+
+                pathBase.setAttribute('d', `M ${pt_base.x} ${pt_base.y} L ${pt_top.x} ${pt_top.y}`);
+                drawTick(tickBaseBottom, pt_base);
+                drawTick(tickBaseTop, pt_top);
+
+                labelBase.style.left = `${(pt_base.x + pt_top.x) / 2 - 20}px`;
+                labelBase.style.top = `${(pt_base.y + pt_top.y) / 2}px`;
+                labelBase.style.opacity = 1;
+
+                // วาด dL (ต่อจาก L0)
+                if (dl !== 0) {
+                    const pt_dl_start = toScreenXY(new THREE.Vector3(-offset_x_dl, l0, 0));
+                    const pt_dl_end = toScreenXY(new THREE.Vector3(-offset_x_dl, l_final, 0));
+                    pathChange.setAttribute('d', `M ${pt_dl_start.x} ${pt_dl_start.y} L ${pt_dl_end.x} ${pt_dl_end.y}`);
+                    
+                    drawTick(tickChangeBottom, pt_dl_start, true);
+                    drawTick(tickChangeTop, pt_dl_end, true);
+                    
+                    labelChange.style.left = `${(pt_dl_start.x + pt_dl_end.x) / 2 - 45}px`;
+                    labelChange.style.top = `${(pt_dl_start.y + pt_dl_end.y) / 2}px`;
+                    pathChange.style.display = 'block';
+                    tickChangeTop.style.display = 'block';
+                    tickChangeBottom.style.display = 'block';
+                } else {
+                    pathChange.style.display = 'none';
+                    tickChangeTop.style.display = 'none';
+                    tickChangeBottom.style.display = 'none';
+                }
+            } 
+            else if (currentMode === 'shear') {
+                document.getElementById('svg-overlay').style.display = 'block';
+                const h = parseFloat(sliderH.value);
+                const dx = parseFloat(sliderDX.value);
+                
+                // เส้นบอกความสูง h ด้านซ้ายของกล่อง
+                const pt_base = toScreenXY(new THREE.Vector3(-1.5, 0, 0));
+                const pt_top = toScreenXY(new THREE.Vector3(-1.5, h, 0));
+
+                pathBase.setAttribute('d', `M ${pt_base.x} ${pt_base.y} L ${pt_top.x} ${pt_top.y}`);
+                drawTick(tickBaseBottom, pt_base);
+                drawTick(tickBaseTop, pt_top);
+
+                labelBase.style.left = `${(pt_base.x + pt_top.x) / 2 - 20}px`;
+                labelBase.style.top = `${(pt_base.y + pt_top.y) / 2}px`;
+                labelBase.style.opacity = 1;
+
+                if (dx !== 0) {
+                    // คำนวณเส้นบอกระยะ dx ลอยอยู่เหนือกล่อง
+                    const p3d_orig = new THREE.Vector3(-1, h, 1); // มุมเดิมก่อนเฉือน
+                    const p3d_new = new THREE.Vector3(-1 + dx, h, 1); // มุมใหม่หลังเฉือน
+                    
+                    const pt_dx_start = toScreenXY(new THREE.Vector3(-1, h + 0.4, 1));
+                    const pt_dx_end = toScreenXY(new THREE.Vector3(-1 + dx, h + 0.4, 1));
+                    
+                    pathChange.setAttribute('d', `M ${pt_dx_start.x} ${pt_dx_start.y} L ${pt_dx_end.x} ${pt_dx_end.y}`);
+                    
+                    // เส้นประชี้ไปยังมุมกล่องของจริง
+                    const pt_c_orig = toScreenXY(p3d_orig);
+                    const pt_c_new = toScreenXY(p3d_new);
+                    guideChangeStart.setAttribute('d', `M ${pt_dx_start.x} ${pt_dx_start.y} L ${pt_c_orig.x} ${pt_c_orig.y}`);
+                    guideChangeEnd.setAttribute('d', `M ${pt_dx_end.x} ${pt_dx_end.y} L ${pt_c_new.x} ${pt_c_new.y}`);
+
+                    // ขีดของเส้นวัด (Ticks)
+                    tickChangeBottom.setAttribute('x1', pt_dx_start.x);
+                    tickChangeBottom.setAttribute('y1', pt_dx_start.y - 5);
+                    tickChangeBottom.setAttribute('x2', pt_dx_start.x);
+                    tickChangeBottom.setAttribute('y2', pt_dx_start.y + 5);
+                    
+                    tickChangeTop.setAttribute('x1', pt_dx_end.x);
+                    tickChangeTop.setAttribute('y1', pt_dx_end.y - 5);
+                    tickChangeTop.setAttribute('x2', pt_dx_end.x);
+                    tickChangeTop.setAttribute('y2', pt_dx_end.y + 5);
+
+                    labelChange.style.left = `${(pt_dx_start.x + pt_dx_end.x) / 2}px`;
+                    labelChange.style.top = `${(pt_dx_start.y + pt_dx_end.y) / 2 - 20}px`;
+                    
+                    pathChange.style.display = 'block';
+                    tickChangeTop.style.display = 'block';
+                    tickChangeBottom.style.display = 'block';
+                } else {
+                    pathChange.style.display = 'none';
+                    tickChangeTop.style.display = 'none';
+                    tickChangeBottom.style.display = 'none';
+                }
+            }
+            else if (currentMode === 'volumetric') {
+                // ปิดเส้น SVG เพราะใช้แค่ป้ายกำกับ HTML ลอยๆ พอ
+                document.getElementById('svg-overlay').style.display = 'none';
+                
+                const v0 = parseFloat(sliderV0.value);
+                const dv = parseFloat(sliderDV.value);
+                const r0 = Math.cbrt((3 * v0) / (4 * Math.PI));
+                const rFinal = Math.cbrt((3 * (v0 + dv)) / (4 * Math.PI));
+
+                const pt_v0 = toScreenXY(new THREE.Vector3(r0 + 0.2, 2, 0));
+                labelBase.style.left = `${pt_v0.x}px`;
+                labelBase.style.top = `${pt_v0.y}px`;
+                labelBase.style.opacity = 1;
+
+                if (dv !== 0) {
+                    const pt_dv = toScreenXY(new THREE.Vector3(rFinal + 0.2, 2.5, 0));
+                    labelChange.style.left = `${pt_dv.x}px`;
+                    labelChange.style.top = `${pt_dv.y}px`;
+                }
+            }
+        }
+
+        // --- 8. Interactive Example Logic (ตัวอย่างโต้ตอบได้) ---
+        const exInL0 = document.getElementById('ex-in-l0');
+        const exInDL = document.getElementById('ex-in-dl');
+        const exSolution = document.getElementById('ex-solution');
+
+        function updateExample() {
+            const l0_m = parseFloat(exInL0.value);
+            const dl_mm = parseFloat(exInDL.value);
+
+            if (isNaN(l0_m) || isNaN(dl_mm) || l0_m <= 0) {
+                exSolution.innerHTML = `<p class="text-red-500 font-medium">${i18n[currentLang]['ex_error']}</p>`;
+                return;
+            }
+
+            const dl_m = dl_mm / 1000;
+            
+            // ใช้ toPrecision เพื่อป้องกันบั๊กทศนิยมยาวเหยียด (Floating point precision issues)
+            const rawStrain = dl_m / l0_m;
+            const cleanStrain = Number(rawStrain.toPrecision(6)); 
+            const percent = Number((cleanStrain * 100).toPrecision(6));
+            const micro = Number((cleanStrain * 1e6).toPrecision(6));
+
+            // จัดรูปแบบสัญกรณ์วิทยาศาสตร์ (Scientific Notation Formatting) ให้ดูสวยงาม
+            let formattedExp = "0";
+            if (cleanStrain !== 0) {
+                let parts = cleanStrain.toExponential().split('e');
+                let coeff = parseFloat(parts[0]);
+                // ถ้าสัมประสิทธิ์เป็นจำนวนเต็ม เช่น 3 ให้แปลงเป็น 3.0
+                if (Number.isInteger(coeff)) coeff = coeff.toFixed(1);
+                let exp = parseInt(parts[1]);
+                formattedExp = `${coeff} &times; 10<sup>${exp}</sup>`;
+            }
+
+            const t = i18n[currentLang];
+            const orText = currentLang === 'th' ? 'หรือ' : 'or';
+
+            // HTML บริสุทธิ์สำหรับการแสดงวิธีทำ (ไม่ใช้ MathJax เพื่อเสถียรภาพ)
+            const html = `
+                <div class="space-y-4 text-slate-700 text-lg">
+                    <p>${t.ex_sol_step1}</p>
+                    <ul class="list-disc list-inside ml-4 mb-2 bg-slate-50 p-4 rounded border border-slate-100">
+                        <li>${t.ex_sol_l0} = <strong>${l0_m} m</strong></li>
+                        <li>${t.ex_sol_dl} = ${dl_mm} mm = ${dl_mm} &times; 10<sup>-3</sup> m = <strong>${dl_m} m</strong></li>
+                    </ul>
+                    
+                    <p>${t.ex_sol_step2}</p>
+                    <div class="overflow-x-auto my-2 p-4 bg-slate-50 rounded border border-slate-200 text-center font-bold text-xl">
+                        &epsilon; = <div class="frac"><span>&Delta;L</span><span>L<sub>0</sub></span></div> <br><br>
+                        &epsilon; = <div class="frac"><span>${dl_m}</span><span>${l0_m}</span></div> <br><br>
+                        &epsilon; = <span class="text-indigo-600">${formattedExp}</span> <span class="text-base text-slate-500 font-normal">(${orText} ${cleanStrain})</span>
+                    </div>
+
+                    <p>${t.ex_sol_step3}</p>
+                    <ul class="list-disc list-inside ml-4 mt-2 text-indigo-700 font-medium bg-indigo-50 p-4 rounded border border-indigo-100">
+                        <li>${t.ex_sol_perc} ${cleanStrain} &times; 100 = <strong>${percent} %</strong></li>
+                        <li>${t.ex_sol_micro} ${cleanStrain} &times; 10<sup>6</sup> = <strong>${micro.toLocaleString('en-US')} &mu;&epsilon;</strong></li>
+                    </ul>
+                </div>
+            `;
+
+            exSolution.innerHTML = html;
+        }
+
+        // --- 9. Listeners & Initialization (เชื่อมโยงเหตุการณ์และเริ่มระบบ) ---
+        
+        // ผูกฟังก์ชันเมื่อลาก Slider
+        [sliderL0, sliderDL, sliderH, sliderDX, sliderV0, sliderDV].forEach(el => {
+            el.addEventListener('input', updateSimulation);
+        });
+        
+        // ผูกฟังก์ชันเมื่อผู้ใช้พิมพ์ตัวเลขในกล่องโจทย์
+        [exInL0, exInDL].forEach(el => {
+            el.addEventListener('input', () => {
+                updateExample();
+            });
+        });
+
+        // อัปเดตกล้องเมื่อปรับขนาดหน้าจอ
+        window.addEventListener('resize', () => {
+            camera.aspect = container.clientWidth / container.clientHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(container.clientWidth, container.clientHeight);
+        });
+
+        // Loop หลักสำหรับการเรนเดอร์ภาพ 3 มิติ (60 FPS)
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update(); // ให้อัปเดตมุมมองกล้อง (Orbit)
+            updateDimensionLines(); // อัปเดตเส้นบอกระยะให้ตามมุมกล้อง
+            renderer.render(scene, camera);
+        }
+
+        // เมื่อโหลดหน้าเว็บเสร็จ
+        window.onload = function() {
+            setLang('en'); // ตั้งภาษาเริ่มต้นเป็นภาษาอังกฤษ
+            updateSimulation(); // บังคับสร้างโมเดลและคำนวณใหม่เพื่อให้ 3D มีรูปร่างที่ถูกต้องตรงกับ Slider
+            animate(); // เริ่มระบบแอนิเมชั่น 3D
+        };
+
+    </script>
+</body>
+</html>
